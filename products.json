@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "nome": "Lemon Haze",
+    "prezzo": "15",
+    "immagine": "https://images.leafly.com/flower-images/defaults/purple-strains.png?auto=compress&dpr=2&w=420",
+    "tipologia": "Farm A"
+  },
+  {
+    "id": 2,
+    "nome": "Amnesia Kush",
+    "prezzo": "25",
+    "immagine": "https://images.leafly.com/flower-images/defaults/sativa-strains.png?auto=compress&dpr=2&w=420",
+    "tipologia": "Farm B"
+  },
+  {
+    "id": 3,
+    "nome": "Gelato 41",
+    "prezzo": "20",
+    "immagine": "https://images.leafly.com/flower-images/defaults/hybrid-strains.png?auto=compress&dpr=2&w=420",
+    "tipologia": "Farm A"
+  },
+  {
+    "id": 4,
+    "nome": "Gorilla Glue",
+    "prezzo": "18",
+    "immagine": "https://images.leafly.com/flower-images/defaults/purple-strains.png?auto=compress&dpr=2&w=420",
+    "tipologia": "Farm C"
+  },
+  {
+    "id": 5,
+    "nome": "Wedding Cake",
+    "prezzo": "22",
+    "immagine": "https://images.leafly.com/flower-images/defaults/sativa-strains.png?auto=compress&dpr=2&w=420",
+    "tipologia": "Farm B"
+  }
+]
