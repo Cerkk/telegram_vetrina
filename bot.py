@@ -1,5 +1,6 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, TelegramError
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import json
 import os
@@ -15,6 +16,10 @@ import os # Assicurati che os sia importato
 # Inizializza l'app Flask. Importante: la variabile 'app' deve essere definita prima di essere usata in wsgi.py
 app = Flask(__name__) 
 
+
+@app.route('/media/<path:filename>')
+def serve_media(filename):
+    return send_from_directory(MEDIA_DIR, filename)
 
 # Configura il logging
 logging.basicConfig(
