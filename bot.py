@@ -28,10 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TOKEN del tuo bot Telegram (sostituisci con il tuo vero token)
-BOT_TOKEN = "IL_TUO_BOT_TOKEN_QUI" # <--- SOSTITUISCI QUESTO!
+BOT_TOKEN = "8271496436:AAHME0_r544DURmsfGPXyfnHppM9SvNATLQ" # <--- SOSTITUISCI QUESTO!
 
 # ID utente dell'amministratore (solo questo utente potrà usare i comandi admin)
-ADMIN_ID = 123456789 # <--- SOSTITUISCI CON IL TUO ID ADMIN
+ADMIN_ID = 680122100 # <--- SOSTITUISCI CON IL TUO ID ADMIN
 
 # Percorsi dei file e delle directory
 PRODUCTS_FILE = 'products.json' 
@@ -41,11 +41,11 @@ MEDIA_DIR = 'media/' # Directory dove salveremo i media caricati
 # IMPORTANTISSIMO per Render: questo sarà l'URL del tuo servizio Render + /media/
 # Esempio per Render: "https://your-render-service-name.onrender.com/media/"
 # Esempio per sviluppo locale: "http://localhost:8000/media/"
-BASE_URL_MEDIA = "https://your-render-service-name.onrender.com/media/" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
+BASE_URL_MEDIA = "https://telegram-vetrina-bot.onrender.com/media" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
 
 # URL della tua Mini App (per Netlify, deve essere HTTPS)
 # Esempio per Netlify: "https://your-netlify-site-name.netlify.app/vetrina.html"
-MINI_APP_URL = "https://your-netlify-site-name.netlify.app/vetrina.html" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
+MINI_APP_URL = "vetrina-prodotti-bot.netlify.app/vetrina.html" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
 
 
 # --- Variabili globali per lo stato del bot ---
