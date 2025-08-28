@@ -1,89 +1,102 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.error import TelegramError
+from telegram.error import TelegramError # Importazione corretta di TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import json
-import os
-import asyncio
-import uuid # Per generare nomi file univoci
-from flask import Flask, send_from_directory, request
-from threading import Thread # Per eseguire Flask in un thread separato
-import time # Per un piccolo ritardo all'avvio del server Flask
-# ... (le tue importazioni esistenti) ...
-from flask import Flask, send_from_directory, request
-import os # Assicurati che os sia importato
+import os # Importa os per le variabili d'ambiente e path operations
+import asyncio # Per la gestione dei file JSON in modo asincrono
+import uuid # Per generare nomi file univoci per i media
+from flask import Flask, send_from_directory, request # Importa Flask per il server media
+from threading import Thread # Potrebbe servire per esecuzioni locali, ma non per Render Web Service con Gunicorn
+import time # Per eventuali ritardi, se necessario
 
-# Inizializza l'app Flask. Importante: la variabile 'app' deve essere definita prima di essere usata in wsgi.py
-app = Flask(__name__) 
-
-
-@app.route('/media/<path:filename>')
-def serve_media(filename):
-    return send_from_directory(MEDIA_DIR, filename)
-
-# Configura il logging
+# --- Configurazione del Logging (primo in assoluto) ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# TOKEN del tuo bot Telegram (sostituisci con il tuo vero token)
-BOT_TOKEN = "8271496436:AAHME0_r544DURmsfGPXyfnHppM9SvNATLQ" # <--- SOSTITUISCI QUESTO!
-
-# ID utente dell'amministratore (solo questo utente potrà usare i comandi admin)
-ADMIN_ID = 680122100 # <--- SOSTITUISCI CON IL TUO ID ADMIN
-
-# Percorsi dei file e delle directory
+# --- 1. Definizione delle Variabili di Percorso Locali ---
+# Queste sono costanti relative alla struttura del tuo progetto.
 PRODUCTS_FILE = 'products.json' 
-MEDIA_DIR = 'media/' # Directory dove salveremo i media caricati
+MEDIA_DIR = 'media/' 
 
-# BASE_URL_MEDIA deve essere l'URL pubblico della cartella MEDIA_DIR
-# IMPORTANTISSIMO per Render: questo sarà l'URL del tuo servizio Render + /media/
-# Esempio per Render: "https://your-render-service-name.onrender.com/media/"
-# Esempio per sviluppo locale: "http://localhost:8000/media/"
-BASE_URL_MEDIA = "https://telegram-vetrina-bot.onrender.com/media" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
+# --- 2. Inizializzazione dell'App Flask ---
+# L'istanza dell'applicazione Flask deve essere creata prima di definire le sue rotte.
+app = Flask(__name__) 
 
-# URL della tua Mini App (per Netlify, deve essere HTTPS)
-# Esempio per Netlify: "https://your-netlify-site-name.netlify.app/vetrina.html"
-MINI_APP_URL = "vetrina-prodotti-bot.netlify.app/vetrina.html" # <--- SOSTITUISCI CON IL TUO URL PUBBLICO REALE!
+# --- 3. Definizione delle Rotte Flask ---
+# Queste rotte sono usate dal server Flask per servire i file dalla cartella MEDIA_DIR.
+@app.route('/media/<path:filename>')
+def serve_media(filename):
+    """Serve i file media dalla directory specificata."""
+    return send_from_directory(MEDIA_DIR, filename)
+
+# Rotta di base opzionale, utile per verificare che il server Flask sia attivo.
+@app.route('/')
+def home():
+    """Pagina di benvenuto per la rotta radice."""
+    return "Bot Telegram e server media Flask attivi!"
 
 
-# --- Variabili globali per lo stato del bot ---
-user_data = {} 
-last_bot_message_id = {} 
+# --- 4. Lettura delle Variabili d'Ambiente ---
+# Queste variabili contengono dati sensibili o configurazioni che variano tra gli ambienti.
+# Render le fornirà al tuo servizio.
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID")) if os.getenv("ADMIN_ID") else None # Converte in int, gestisce il caso None
+BASE_URL_MEDIA = os.getenv("BASE_URL_MEDIA") # URL pubblico del tuo servizio Render per i media
+MINI_APP_URL = os.getenv("MINI_APP_URL") # URL della tua Mini App su Netlify
 
-# --- Stati per la macchina a stati finiti ---
+# --- 5. Validazione delle Variabili Cruciali (per debug e sicurezza) ---
+# Se queste variabili non sono impostate, ci saranno problemi.
+if not BOT_TOKEN:
+    logger.critical("BOT_TOKEN non è stato trovato nelle variabili d'ambiente! Il bot non può avviarsi.")
+    # In un ambiente di produzione, qui potresti voler lanciare un'eccezione o terminare.
+if ADMIN_ID is None: # Controlliamo se ADMIN_ID è ancora None dopo il tentativo di conversione
+    logger.warning("ADMIN_ID non è stato trovato nelle variabili d'ambiente. I comandi admin non saranno disponibili.")
+if not BASE_URL_MEDIA:
+    logger.critical("BASE_URL_MEDIA non è stato trovato nelle variabili d'ambiente! Il server media potrebbe non funzionare correttamente.")
+if not MINI_APP_URL:
+    logger.critical("MINI_APP_URL non è stato trovato nelle variabili d'ambiente! La Mini App non sarà accessibile.")
+
+
+# --- Variabili globali per lo stato del bot (vanno bene qui) ---
+user_data = {} # Mantiene lo stato per ciascun utente nel flusso dei comandi
+last_bot_message_id = {} # Per tenere traccia dell'ultimo messaggio del bot e cancellarlo
+
+# --- Stati per la macchina a stati finiti (vanno bene qui) ---
 # Stati per l'aggiunta prodotto
 ADD_PRODUCT_NAME = 1
 ADD_PRODUCT_PRICE = 2
 ADD_PRODUCT_MEDIA = 3
-ADD_PRODUCT_CATEGORY_SELECT = 4 # Stato per la selezione della categoria esistente o nuova
+ADD_PRODUCT_CATEGORY_SELECT = 4 
 
 # Stati per la modifica prodotto
 MODIFY_PRODUCT_ASK_NAME = 10
 MODIFY_PRODUCT_ASK_FIELD = 11
-MODIFY_PRODUCT_ASK_MEDIA_UPLOAD = 13
 MODIFY_PRODUCT_ASK_VALUE = 12 
+MODIFY_PRODUCT_ASK_MEDIA_UPLOAD = 13
 
 # Stati per la gestione delle categorie
-CATEGORY_ACTION_SELECT = 20 # Scegli aggiungi o elimina
-ADD_CATEGORY_NAME = 21 # Chiede il nome della nuova categoria
-DELETE_CATEGORY_NAME = 22 # Chiede il nome della categoria da eliminare
+CATEGORY_ACTION_SELECT = 20
+ADD_CATEGORY_NAME = 21
+DELETE_CATEGORY_NAME = 22
 
 # Stati per l'eliminazione prodotto
 DELETE_PRODUCT_ASK_NAME = 30
-AWAITING_DELETE_CONFIRMATION = 31 # Nuovo stato per la conferma eliminazione
+AWAITING_DELETE_CONFIRMATION = 31 
 
 
 # --- Funzioni di utilità per la gestione del file JSON ---
 async def read_products_and_categories():
     """Legge prodotti e categorie dal file JSON."""
-    async with asyncio.Lock(): 
+    async with asyncio.Lock(): # Usa un lock per prevenire accessi concorrenti al file
         if not os.path.exists(PRODUCTS_FILE) or os.path.getsize(PRODUCTS_FILE) == 0:
+            # Crea un file JSON vuoto se non esiste o è vuoto
             initial_data = {'products': [], 'categories': []}
             with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(initial_data, f, indent=2, ensure_ascii=False)
-            return {'products': [], 'categories': []}
+            return initial_data
         
         with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
             try:
@@ -99,11 +112,11 @@ async def read_products_and_categories():
                 initial_data = {'products': [], 'categories': []}
                 with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f_write:
                     json.dump(initial_data, f_write, indent=2, ensure_ascii=False)
-                return {'products': [], 'categories': []}
+                return initial_data
 
 async def write_products_and_categories(data):
     """Scrive prodotti e categorie nel file JSON."""
-    async with asyncio.Lock():
+    async with asyncio.Lock(): # Usa un lock per prevenire accessi concorrenti al file
         with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -138,12 +151,11 @@ async def send_start_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Puoi impostare un logo qui o lasciare che sia solo testo
-    logo_url = "https://www.freeiconspng.com/uploads/logo-new-png-5.png" # <--- Sostituisci con il tuo logo
+    logo_url = "https://www.freeiconspng.com/uploads/logo-new-png-5.png" # <--- Sostituisci con il tuo logo reale
     caption = "Benvenuto nella vetrina dei prodotti! Clicca qui sotto per il menu."
 
     try:
-        if logo_url and not logo_url.strip() == "": # Verifica se l'URL del logo è valido
+        if logo_url and not logo_url.strip() == "": 
             message = await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=logo_url,
@@ -165,7 +177,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Gestisce il comando /start."""
     await send_start_message(update, context)
 
-# --- Funzione per salvare i media ---
 async def save_media_from_telegram(file_id: str, file_extension: str, context: ContextTypes.DEFAULT_TYPE) -> str:
     """
     Scarica un file da Telegram e lo salva nella directory media/.
@@ -185,7 +196,7 @@ async def save_media_from_telegram(file_id: str, file_extension: str, context: C
 # --- Comandi Admin ---
 async def admin_only_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Verifica se l'utente è l'admin e invia un messaggio di avviso in caso contrario."""
-    if not is_admin(update.effective_user.id):
+    if ADMIN_ID is None or not is_admin(update.effective_user.id):
         await update.message.reply_text("Non sei autorizzato a usare questo comando.")
         return False
     return True
@@ -203,15 +214,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    if not is_admin(user_id):
-        # Se non è admin, e non ha usato /start, gli diciamo cosa fare
-        if update.message.text and not update.message.text.startswith('/'):
-            await update.message.reply_text("Benvenuto! Usa /start per avviare la vetrina.")
+    if not is_admin(user_id) and update.message.text and not update.message.text.startswith('/'):
+        await update.message.reply_text("Benvenuto! Usa /start per avviare la vetrina.")
         return # Ignora i messaggi da non-admin che non sono comandi specifici
 
     if user_id not in user_data:
-        # Se l'utente è admin ma non è in un flusso di aggiunta/modifica, e ha scritto un testo non comando
-        if update.message.text and not update.message.text.startswith('/'):
+        # Se l'utente è admin ma non è in un flusso specifico e ha scritto un testo non comando
+        if is_admin(user_id) and update.message.text and not update.message.text.startswith('/'):
             await update.message.reply_text("Non ho capito. Usa /start per la vetrina o un comando admin come /aggiungi, /modifica, /elimina, /categoria.")
         return # Ignora il messaggio, probabilmente è fuori da un contesto operativo
 
@@ -228,7 +237,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif current_state == ADD_PRODUCT_PRICE:
         if update.message.text:
-            user_data[user_id]['price'] = update.message.text # Prezzo come stringa, verrà mostrato così
+            user_data[user_id]['price'] = update.message.text 
             user_data[user_id]['state'] = ADD_PRODUCT_MEDIA
             await update.message.reply_text("Media del prodotto? (Invia una foto o un video)")
         else:
@@ -241,7 +250,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             media_url = await save_media_from_telegram(file_id, "jpg", context)
         elif update.message.video:
             file_id = update.message.video.file_id
-            media_url = await save_media_from_telegram(file_id, "mp4", context) # O l'estensione appropriata
+            media_url = await save_media_from_telegram(file_id, "mp4", context) 
 
         if media_url:
             user_data[user_id]['image'] = media_url
@@ -251,11 +260,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             categories = json_data['categories']
             
             if not categories:
-                # Se non ci sono categorie, chiedi di crearne una nuova
                 await update.message.reply_text("Non ci sono categorie esistenti. Per favore, inserisci il nome della nuova categoria per questo prodotto.")
-                user_data[user_id]['state'] = ADD_PRODUCT_CATEGORY_SELECT # Resta in questo stato, ma si aspetta un input testuale
+                user_data[user_id]['state'] = ADD_PRODUCT_CATEGORY_SELECT 
             else:
-                # Mostra le categorie esistenti e l'opzione per crearne una nuova
                 keyboard = [[InlineKeyboardButton(cat, callback_data=f"select_category_{cat}")] for cat in categories]
                 keyboard.append([InlineKeyboardButton("Crea Nuova Categoria", callback_data="create_new_category")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -264,7 +271,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Per favore, invia una foto o un video valido.")
 
     elif current_state == ADD_PRODUCT_CATEGORY_SELECT:
-        if update.message.text: # L'utente ha digitato una nuova categoria
+        if update.message.text: 
             new_category = update.message.text.strip()
             
             json_data = await read_products_and_categories()
@@ -286,7 +293,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 'nome': user_data[user_id]['name'],
                 'prezzo': user_data[user_id]['price'],
                 'immagine': user_data[user_id]['image'],
-                'tipologia': new_category # Usa la categoria appena creata/selezionata
+                'tipologia': new_category 
             }
             
             json_data['products'].append(new_product)
@@ -315,7 +322,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 msg_text = "Trovati più prodotti con lo stesso nome. Per favore, indica l'ID del prodotto che vuoi modificare:\n"
                 for p in found_products:
                     msg_text += f"ID: {p['id']}, Nome: {p['nome']} (Categoria: {p.get('tipologia', 'N/A')})\n"
-                # Fornisci l'opzione per selezionare con pulsante
                 keyboard = [[InlineKeyboardButton(f"ID: {p['id']}, Nome: {p['nome']}", callback_data=f"select_modify_product_{p['id']}")] for p in found_products]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(msg_text + "Oppure seleziona qui sotto:", reply_markup=reply_markup)
@@ -376,7 +382,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             media_url = await save_media_from_telegram(file_id, "mp4", context)
 
         if media_url:
-            field_to_modify = user_data[user_id]['field_to_modify'] # Dovrebbe essere 'immagine'
+            field_to_modify = user_data[user_id]['field_to_modify'] 
             product_id = user_data[user_id]['product_id_to_modify']
             
             json_data = await read_products_and_categories()
@@ -384,7 +390,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             product_found = False
             for p in products:
                 if p['id'] == product_id:
-                    # Se c'era un vecchio media, prova a eliminarlo
                     if 'immagine' in p and p['immagine'].startswith(BASE_URL_MEDIA):
                         old_media_filename = os.path.basename(p['immagine'])
                         old_media_filepath = os.path.join(MEDIA_DIR, old_media_filename)
@@ -503,8 +508,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await update.message.reply_text("Trovati più prodotti. Quale vuoi eliminare? Seleziona qui sotto:", reply_markup=reply_markup)
                 user_data[user_id]['state'] = AWAITING_DELETE_CONFIRMATION
             else:
-                await confirm_delete_product(update, context, products_to_delete[0]['id'])
-                del user_data[user_id] # Termina il processo dopo l'eliminazione
+                await confirm_delete_product_logic(update.effective_chat.id, context, products_to_delete[0]['id'])
+                del user_data[user_id] 
         else:
             await update.message.reply_text("Per favor, inserisci un nome valido del prodotto da eliminare.")
 
@@ -543,7 +548,6 @@ async def delete_product_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("Che prodotto vuoi rimuovere? Scrivi il nome del prodotto (anche parziale e ignorando maiuscole/minuscole).")
         user_data[update.effective_user.id] = {'state': DELETE_PRODUCT_ASK_NAME}
     else:
-        # Se hanno fornito un argomento direttamente, prova a eliminarlo
         search_term = " ".join(context.args)
         await process_delete_product_request(update, context, search_term)
 
@@ -554,14 +558,12 @@ async def process_delete_product_request(update: Update, context: ContextTypes.D
     
     products_to_delete = []
     
-    # Cerca per ID
     try:
         product_id = int(search_term)
         product = next((p for p in products if p.get('id') == product_id), None)
         if product:
             products_to_delete.append(product)
     except ValueError:
-        # Cerca per nome (case-insensitive, anche parziale)
         products_to_delete = [p for p in products if search_term.lower() in p.get('nome', '').lower()]
 
     if not products_to_delete:
@@ -577,10 +579,8 @@ async def process_delete_product_request(update: Update, context: ContextTypes.D
         user_data[user_id]['state'] = AWAITING_DELETE_CONFIRMATION
         return
 
-    # Se un solo prodotto trovato o specificato da ID
     product_to_remove = products_to_delete[0]
     await confirm_delete_product_logic(update.effective_chat.id, context, product_to_remove['id'])
-
 
 async def confirm_delete_product_logic(chat_id: int, context: ContextTypes.DEFAULT_TYPE, product_id: int):
     json_data = await read_products_and_categories()
@@ -609,6 +609,6 @@ async def confirm_delete_product_logic(chat_id: int, context: ContextTypes.DEFAU
 
     if len(json_data['products']) < initial_len:
         await write_products_and_categories(json_data)
-        await context.bot.send_message(chat_id=chat_id, text=f"Prodotto '{product_to_delete_obj.get('nome', 'Sconosciuto')}' (ID: {product_id}) eliminato con successo!")
+        await context.bot.
     else:
         await context.bot.send_message(chat_id=chat_id, text=f"Nessun prodotto trovato con ID {product_id}.")
