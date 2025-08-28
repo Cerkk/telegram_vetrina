@@ -609,6 +609,6 @@ async def confirm_delete_product_logic(chat_id: int, context: ContextTypes.DEFAU
 
     if len(json_data['products']) < initial_len:
         await write_products_and_categories(json_data)
-        await context.bot.
+        await context.bot
     else:
         await context.bot.send_message(chat_id=chat_id, text=f"Nessun prodotto trovato con ID {product_id}.")
