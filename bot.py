@@ -29,8 +29,9 @@ MEDIA_DIR.mkdir(exist_ok=True)
 lock = threading.Lock()
 
 # per tracciare i messaggi attivi di ogni chat
-last_messages = {}  # salva l'ultimo messaggio inviato dal bot per ogni utente
-pinned_start = {}   # salva il messaggio /start "fisso" per ogni utente (con il bottone della vetrina)
+messages_history = {}
+last_messages = {}  # salva l'ultimo messaggio per ogni utente
+pinned_start = {}   # salva il messaggio /start "fisso" per ogni utente
 
 
 # -----------------------------
@@ -44,7 +45,7 @@ def load_products():
 
 def save_products(products):
     with lock:
-        PRODUCTS_JSON.write_text(json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-utf-8"))
+        PRODUCTS_JSON.write_text(json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def load_sessions():
     with lock:
@@ -61,25 +62,10 @@ def save_sessions(sessions):
 # -----------------------------
 
 
-def send_message(chat_id, text, reply_markup=None, parse_mode=None, protect_start=False):
-    global last_messages, pinned_start
-
-    # Se c'è un messaggio precedente e NON è il /start protetto, lo cancello
+def send_message(chat_id, text, reply_markup=None, protect_start=False):
+    # Se c'è un messaggio precedente e NON è il /start protetto → lo cancello
     if chat_id in last_messages:
-        # Controllo speciale per /start: se c'è un /start precedente e non è l'attuale, lo cancello.
-        # Altrimenti, cancello l'ultimo messaggio non-start.
-        if protect_start and chat_id in pinned_start and last_messages[chat_id] != pinned_start[chat_id]:
-            # Stiamo inviando un nuovo /start e c'è già un vecchio /start "pinnato"
-            try:
-                requests.post(f"{BASE_API}/deleteMessage", json={
-                    "chat_id": chat_id,
-                    "message_id": pinned_start[chat_id]
-                })
-                del pinned_start[chat_id] # Rimuovi il riferimento al vecchio start
-            except Exception:
-                pass
-        elif not (chat_id in pinned_start and last_messages[chat_id] == pinned_start[chat_id]):
-            # Cancella l'ultimo messaggio se non è il /start "pinnato"
+        if not (chat_id in pinned_start and last_messages[chat_id] == pinned_start[chat_id]):
             try:
                 requests.post(f"{BASE_API}/deleteMessage", json={
                     "chat_id": chat_id,
@@ -89,16 +75,11 @@ def send_message(chat_id, text, reply_markup=None, parse_mode=None, protect_star
                 pass
 
     # Invio il nuovo messaggio
-    payload = {
+    resp = requests.post(f"{BASE_API}/sendMessage", json={
         "chat_id": chat_id,
         "text": text,
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-
-    resp = requests.post(f"{BASE_API}/sendMessage", json=payload).json()
+        "reply_markup": reply_markup
+    }).json()
 
     # Salvo l'id messaggio
     if resp.get("ok"):
@@ -112,16 +93,12 @@ def send_message(chat_id, text, reply_markup=None, parse_mode=None, protect_star
     return resp
 
 
+
 def delete_message(chat_id, message_id):
-    try:
-        requests.post(f"{BASE_API}/deleteMessage", data={"chat_id": chat_id, "message_id": message_id})
-    except Exception:
-        pass
+    requests.post(f"{BASE_API}/deleteMessage", data={"chat_id": chat_id, "message_id": message_id})
 
 
 def send_photo(chat_id, photo_url, caption="", reply_markup=None):
-    # La logica di cancellazione viene gestita da send_message, quindi non la replico qui
-    # Questo invia una foto, non un messaggio testuale, quindi non aggiorna last_messages
     data = {"chat_id": chat_id, "photo": photo_url}
     if caption:
         data["caption"] = caption
@@ -252,13 +229,14 @@ def handle_message(message):
     sessions = load_sessions()
     sess = sessions.get(str(chat_id), {})
 
-    # Cancella il messaggio del comando inviato dall'utente
-    if message_id:
-        delete_message(chat_id, message_id)
-
     # comandi
     if text and text.startswith("/"):
         command = text.split()[0].lower()
+
+        # elimina messaggio comando
+        if message_id:
+            delete_message(chat_id, message_id)
+
 
         # /start disponibile per tutti
         if command == "/start":
@@ -266,18 +244,19 @@ def handle_message(message):
                 "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "web_app": {"url": MINI_APP_URL}}]]
             }
 
-            # La funzione send_message ora gestisce la cancellazione del precedente /start se presente
             send_message(
                 chat_id,
                 "Benvenuto Fratm! Usa il pulsante sotto per aprire la vetrina.",
                 reply_markup=keyboard,
                 parse_mode="Markdown",
-                protect_start=True # Indica che questo è un messaggio /start da proteggere
+                is_start=True
             )
 
             sessions.pop(str(chat_id), None)
             save_sessions(sessions)
             return
+
+        
 
         # comandi admin solo per ADMIN_ID
         if command in ("/aggiungi", "/rimuovi", "/modifica", "/info") and chat_id != ADMIN_ID:
@@ -309,6 +288,9 @@ def handle_message(message):
         send_message(chat_id, "Comando non riconosciuto. Usa /aggiungi /rimuovi /modifica")
         return
 
+    # ... resto del codice identico (aggiungi/rimuovi/modifica flussi) ...
+    # (QUI va copiato tutto il blocco delle logiche "adding / removing / modifying"
+    # che ti ho già fornito nel codice precedente, senza cambiare nulla)
     # If there is no session, ignora
     if not sess:
         send_message(chat_id, "Usa /aggiungi per aggiungere un prodotto, /rimuovi o /modifica. /start per info.")
@@ -375,7 +357,7 @@ def handle_message(message):
                     dest = MEDIA_DIR / filename
                     if download_file(fp, dest):
                         buffer["immagine"] = f"media/{filename}"
-                        send_message(chat_id, f"Media salvato come media/{filename}") # Questo messaggio verrà cancellato dal successivo
+                        send_message(chat_id, f"Media salvato come media/{filename}")
             else:
                 buffer["immagine"] = ""
 
