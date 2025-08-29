@@ -30,6 +30,8 @@ lock = threading.Lock()
 
 # per tracciare i messaggi attivi di ogni chat
 messages_history = {}
+last_messages = {}  # salva l'ultimo messaggio per ogni utente
+pinned_start = {}   # salva il messaggio /start "fisso" per ogni utente
 
 
 # -----------------------------
@@ -60,40 +62,35 @@ def save_sessions(sessions):
 # -----------------------------
 
 
-def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=False):
-    """
-    Invia un messaggio e cancella i duplicati.
-    Se is_start=True, mantiene solo l'ultimo /start.
-    Per tutti gli altri comandi, mantiene sempre un solo messaggio attivo.
-    """
-    # cancella messaggi precedenti in base al tipo
-    prev_msgs = messages_history.get(chat_id, [])
+def send_message(chat_id, text, reply_markup=None, protect_start=False):
+    # Se c'è un messaggio precedente e NON è il /start protetto → lo cancello
+    if chat_id in last_messages:
+        if not (chat_id in pinned_start and last_messages[chat_id] == pinned_start[chat_id]):
+            try:
+                requests.post(f"{BASE_API}/deleteMessage", json={
+                    "chat_id": chat_id,
+                    "message_id": last_messages[chat_id]
+                })
+            except Exception:
+                pass
 
-    if is_start:
-        # elimina solo vecchi messaggi di start
-        for mid in prev_msgs:
-            delete_message(chat_id, mid)
-        prev_msgs = []
-    else:
-        # elimina tutti i messaggi precedenti
-        for mid in prev_msgs:
-            delete_message(chat_id, mid)
-        prev_msgs = []
+    # Invio il nuovo messaggio
+    resp = requests.post(f"{BASE_API}/sendMessage", json={
+        "chat_id": chat_id,
+        "text": text,
+        "reply_markup": reply_markup
+    }).json()
 
-    # prepara i dati per Telegram API
-    data = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        data["reply_markup"] = json.dumps(reply_markup)
-    if parse_mode:
-        data["parse_mode"] = parse_mode
+    # Salvo l'id messaggio
+    if resp.get("ok"):
+        msg_id = resp["result"]["message_id"]
+        last_messages[chat_id] = msg_id
 
-    r = requests.post(f"{BASE_API}/sendMessage", data=data)
-    result = r.json()
-    if result.get("ok"):
-        mid = result["result"]["message_id"]
-        messages_history[chat_id] = [mid]  # salva solo l’ultimo
-        return mid
-    return None
+        # Se è un messaggio di start "fisso", lo salvo in pinned_start
+        if protect_start:
+            pinned_start[chat_id] = msg_id
+
+    return resp
 
 
 
