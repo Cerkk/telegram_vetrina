@@ -24,6 +24,10 @@ PRODUCTS_JSON = ROOT / "products.json"
 SESSIONS_JSON = ROOT / "sessions.json"
 MEDIA_DIR = ROOT / "media"
 MEDIA_DIR.mkdir(exist_ok=True)
+CATEGORIES_JSON = ROOT / "categories.json"
+# assicurati che il file esista (lo creeremo vuoto solo se necessario)
+if not CATEGORIES_JSON.exists():
+    CATEGORIES_JSON.write_text("[]", encoding="utf-8")
 
 # Thread lock
 lock = threading.Lock()
@@ -157,10 +161,15 @@ def download_file(file_path, dest_path: Path):
 # -----------------------------
 # SESSION HELPERS
 # -----------------------------
-def start_adding(chat_id, sessions):
-    sessions[str(chat_id)] = {"mode": "adding", "step": "name", "buffer": {}}
+def start_adding_choice(chat_id, sessions):
+    """
+    Chiedi se l'admin vuole aggiungere un Prodotto o una Categoria.
+    """
+    sessions[str(chat_id)] = {"mode": "adding_choice", "step": "choice", "buffer": {}}
     save_sessions(sessions)
-    send_message(chat_id, "🟢 Aggiungi prodotto — inserisci il *nome* del prodotto:", parse_mode="Markdown")
+    # tastiera semplice
+    answer_with_keyboard(chat_id, "Cosa vuoi aggiungere? scegli:", ["Prodotto", "Categoria"])
+
 
 def start_removing(chat_id, sessions):
     sessions[str(chat_id)] = {"mode": "removing", "step": "choice", "buffer": {}}
@@ -172,13 +181,32 @@ def start_modifying(chat_id, sessions):
     save_sessions(sessions)
     answer_with_keyboard(chat_id, "Vuoi modificare un *Prodotto* o una *Categoria*?", ["Prodotto", "Categoria"])
 
+def load_categories():
+    try:
+        return json.loads(CATEGORIES_JSON.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def save_categories(categories):
+    try:
+        CATEGORIES_JSON.write_text(json.dumps(categories, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
 def list_products_by_category():
     products = load_products()
+    # parte dai prodotti
     by_cat = {}
     for p in products:
         cat = p.get("tipologia", "Senza categoria")
         by_cat.setdefault(cat, []).append(p)
+    # aggiungi categorie vuote definite dall'admin (se non ci sono prodotti)
+    cats = load_categories()
+    for c in cats:
+        if c not in by_cat:
+            by_cat[c] = []
     return by_cat
+
 
 def find_product_by_name(name):
     products = load_products()
@@ -300,8 +328,10 @@ def handle_message(message):
             return
 
         if command == "/aggiungi":
-            start_adding(chat_id, sessions)
+            # prima chiediamo quale tipo aggiungere
+            start_adding_choice(chat_id, sessions)
             return
+
         if command == "/rimuovi":
             start_removing(chat_id, sessions)
             return
@@ -316,6 +346,69 @@ def handle_message(message):
     # (QUI va copiato tutto il blocco delle logiche "adding / removing / modifying"
     # che ti ho già fornito nel codice precedente, senza cambiare nulla)
     # If there is no session, ignora
+    
+    
+        # Gestione scelta quando siamo in "adding_choice" o "adding_category"
+    if sess and sess.get("mode") == "adding_choice":
+        step = sess.get("step")
+        if step == "choice":
+            # l'utente ha risposto "Prodotto" o "Categoria"
+            if not text:
+                answer_with_keyboard(chat_id, "Cosa vuoi aggiungere? scegli:", ["Prodotto", "Categoria"])
+                return
+            t = text.strip().lower()
+            # cancella il messaggio dell'utente per pulizia
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+            if t.startswith("prod"):
+                # avvia il flow prodotto (nome -> prezzo -> ...)
+                sessions[str(chat_id)] = {"mode": "adding", "step": "name", "buffer": {}}
+                save_sessions(sessions)
+                send_message(chat_id, "🟢 Aggiungi prodotto — inserisci il *nome* del prodotto:", parse_mode="Markdown")
+                return
+            elif t.startswith("cat"):
+                # avvia il flow per aggiungere una categoria
+                sessions[str(chat_id)] = {"mode": "adding_category", "step": "name", "buffer": {}}
+                save_sessions(sessions)
+                send_message(chat_id, "🟢 Aggiungi categoria — inserisci il *nome* della categoria:", parse_mode="Markdown")
+                return
+            else:
+                send_message(chat_id, "Rispondi 'Prodotto' o 'Categoria'.")
+                return
+
+    # Flow per aggiungere una categoria (semplice: chiedo il nome e lo salvo)
+    if sess and sess.get("mode") == "adding_category":
+        step = sess.get("step")
+        if step == "name":
+            if not text:
+                send_message(chat_id, "Inserisci il nome della categoria (testo).")
+                return
+            category_name = text.strip()
+            # cancella il messaggio dell'utente
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+            # carica categorie, aggiungi se non esiste, salva
+            cats = load_categories()
+            if category_name in cats:
+                send_message(chat_id, f"❌ La categoria '{category_name}' esiste già.")
+                sessions.pop(str(chat_id), None); save_sessions(sessions)
+                return
+            cats.append(category_name)
+            save_categories(cats)
+            send_message(chat_id, f"✅ Categoria aggiunta: {category_name}")
+            sessions.pop(str(chat_id), None); save_sessions(sessions)
+            return
+
+    
+    
     if not sess:
         send_message(chat_id, "Usa /aggiungi per aggiungere un prodotto, /rimuovi o /modifica. /start per info.")
         return
@@ -331,6 +424,15 @@ def handle_message(message):
                 send_message(chat_id, "Inserisci il nome del prodotto (testo).")
                 return
             buffer["nome"] = text.strip()
+
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+
             sess["step"] = "prezzo"
             sess["buffer"] = buffer
             sessions[str(chat_id)] = sess
@@ -343,6 +445,15 @@ def handle_message(message):
                 send_message(chat_id, "Inserisci il prezzo (testo numerico).")
                 return
             buffer["prezzo"] = text.strip()
+
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+
             sess["step"] = "categoria"
             sess["buffer"] = buffer
             sessions[str(chat_id)] = sess
@@ -355,6 +466,15 @@ def handle_message(message):
                 send_message(chat_id, "Inserisci la categoria (testo).")
                 return
             buffer["tipologia"] = text.strip()
+
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+
             sess["step"] = "media"
             sess["buffer"] = buffer
             sessions[str(chat_id)] = sess
@@ -372,6 +492,14 @@ def handle_message(message):
             else:
                 send_message(chat_id, "Invia un video o un’immagine o scrivi 'nessuno'.")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
 
             if file_id:
                 fp = get_file_path(file_id)
@@ -425,6 +553,15 @@ def handle_message(message):
             if not text:
                 send_message(chat_id, "Scrivi il nome del prodotto.")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+
             ok = remove_product_by_name(text.strip())
             send_message(chat_id, f"{'✅ Rimosso' if ok else '❌ Non trovato'}: {text.strip()}")
             sessions.pop(str(chat_id), None); save_sessions(sessions)
@@ -434,6 +571,14 @@ def handle_message(message):
             if not text:
                 send_message(chat_id, "Scrivi il nome della categoria.")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
             removed = remove_category(text.strip())
             send_message(chat_id, f"Rimossi {removed} prodotti dalla categoria '{text.strip()}'.")
             sessions.pop(str(chat_id), None); save_sessions(sessions)
@@ -445,6 +590,14 @@ def handle_message(message):
             if not text:
                 send_message(chat_id, "Rispondi 'Prodotto' o 'Categoria'.")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+            
             t = text.strip().lower()
             if t.startswith("cat"):
                 sess["step"] = "modify_category_name"
@@ -469,6 +622,15 @@ def handle_message(message):
             if not text or "->" not in text:
                 send_message(chat_id, "Formato errato. Usa 'Vecchio -> Nuovo'")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
+
             old, new = [s.strip() for s in text.split("->", 1)]
             products = load_products()
             changed = False
@@ -485,6 +647,14 @@ def handle_message(message):
             return
 
         if step == "modify_select_product":
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+            
             prod = find_product_by_name(text.strip())
             if not prod:
                 send_message(chat_id, "Prodotto non trovato.")
@@ -515,6 +685,14 @@ def handle_message(message):
                 return
 
         if step == "modify_new_value":
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+            
             prod_id = buffer.get("prod_id")
             field = buffer.get("field")
             products = load_products()
@@ -535,6 +713,14 @@ def handle_message(message):
             else:
                 send_message(chat_id, "Invia un video o immagine.")
                 return
+            
+            # cancella il messaggio dell'utente per mantenere la chat pulita
+            try:
+                if message_id:
+                    delete_message(chat_id, message_id)
+            except Exception:
+                pass
+
             fp = get_file_path(file_id)
             ext = Path(fp).suffix or ""
             filename = f"{int(time.time()*1000)}{ext}"
