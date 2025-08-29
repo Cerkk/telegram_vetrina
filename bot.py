@@ -206,15 +206,11 @@ def handle_message(message):
             keyboard = {
                 "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "url": MINI_APP_URL}]]
             }
-            send_photo(
-                chat_id,
-                f"https://{HOSTNAME}/media/logo.png",  # logo servito da /media/
-                caption="Benvenuto nella *Mini Vetrina*! Usa il pulsante sotto per aprirla.",
-                reply_markup=keyboard,
-            )
+            send_message(chat_id, "Benvenuto nella *Mini Vetrina*! Usa il pulsante sotto per aprirla.", reply_markup=keyboard, parse_mode="Markdown")
             sessions.pop(str(chat_id), None)
             save_sessions(sessions)
             return
+
 
         if command == "/aggiungi":
             start_adding(chat_id, sessions)
