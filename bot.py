@@ -202,15 +202,30 @@ def handle_message(message):
         if message_id:
             delete_message(chat_id, message_id)
 
+        if command in ("/aggiungi", "/rimuovi", "/modifica", "/info") and chat_id != ADMIN_ID:
+            send_message(chat_id, "❌ Non sei autorizzato a usare questo comando.")
+            return
+
+
         if command == "/start":
             keyboard = {
                 "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "url": MINI_APP_URL}]]
             }
-            send_message(chat_id, "Benvenuto nella *Mini Vetrina*! Usa il pulsante sotto per aprirla.", reply_markup=keyboard, parse_mode="Markdown")
+            send_message(chat_id, "Benvenuto Fratm! Usa il pulsante sotto per aprire la vetrina.", reply_markup=keyboard, parse_mode="Markdown")
             sessions.pop(str(chat_id), None)
             save_sessions(sessions)
             return
 
+        if command == "/info":
+            text = (
+                "Comandi disponibili:\n"
+                "/start - avvia il bot e mostra il pulsante\n"
+                "/aggiungi - aggiungi un nuovo prodotto\n"
+                "/rimuovi - rimuovi un prodotto o una categoria\n"
+                "/modifica - modifica un prodotto o una categoria\n"
+            )
+            send_message(chat_id, text)
+            return
 
         if command == "/aggiungi":
             start_adding(chat_id, sessions)
