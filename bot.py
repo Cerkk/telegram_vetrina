@@ -209,7 +209,7 @@ def handle_message(message):
 
         if command == "/start":
             keyboard = {
-                "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "url": MINI_APP_URL}]]
+                "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "web_app": MINI_APP_URL}]]
             }
             send_message(chat_id, "Benvenuto Fratm! Usa il pulsante sotto per aprire la vetrina.", reply_markup=keyboard, parse_mode="Markdown")
             sessions.pop(str(chat_id), None)
