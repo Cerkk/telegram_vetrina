@@ -202,20 +202,29 @@ def handle_message(message):
         if message_id:
             delete_message(chat_id, message_id)
 
-        if command in ("/aggiungi", "/rimuovi", "/modifica", "/info") and chat_id != ADMIN_ID:
-            send_message(chat_id, "❌ Non sei autorizzato a usare questo comando.")
-            return
 
-
+        # /start disponibile per tutti
         if command == "/start":
             keyboard = {
-                "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "web_app": MINI_APP_URL}]]
+                "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "web_app": {"url": MINI_APP_URL}}]]
             }
-            send_message(chat_id, "Benvenuto Fratm! Usa il pulsante sotto per aprire la vetrina.", reply_markup=keyboard, parse_mode="Markdown")
+            send_message(
+                chat_id,
+                "Benvenuto! Usa il pulsante sotto per aprire la vetrina.",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
             sessions.pop(str(chat_id), None)
             save_sessions(sessions)
             return
+        
 
+        # comandi admin solo per ADMIN_ID
+        if command in ("/aggiungi", "/rimuovi", "/modifica", "/info") and chat_id != ADMIN_ID:
+            send_message(chat_id, "❌ Non sei autorizzato a usare questo comando.")
+            return
+        
+        # gestione comandi admin
         if command == "/info":
             text = (
                 "Comandi disponibili:\n"
