@@ -28,6 +28,10 @@ MEDIA_DIR.mkdir(exist_ok=True)
 # Thread lock
 lock = threading.Lock()
 
+# per tracciare i messaggi attivi di ogni chat
+messages_history = {}
+
+
 # -----------------------------
 # FILE HELPERS
 # -----------------------------
@@ -54,16 +58,48 @@ def save_sessions(sessions):
 # -----------------------------
 # TELEGRAM HELPERS
 # -----------------------------
-def send_message(chat_id, text, reply_markup=None, parse_mode=None):
+
+
+def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=False):
+    """
+    Invia un messaggio e cancella i duplicati.
+    Se is_start=True, mantiene solo l'ultimo /start.
+    Per tutti gli altri comandi, mantiene sempre un solo messaggio attivo.
+    """
+    # cancella messaggi precedenti in base al tipo
+    prev_msgs = messages_history.get(chat_id, [])
+
+    if is_start:
+        # elimina solo vecchi messaggi di start
+        for mid in prev_msgs:
+            delete_message(chat_id, mid)
+        prev_msgs = []
+    else:
+        # elimina tutti i messaggi precedenti
+        for mid in prev_msgs:
+            delete_message(chat_id, mid)
+        prev_msgs = []
+
+    # prepara i dati per Telegram API
     data = {"chat_id": chat_id, "text": text}
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
     if parse_mode:
         data["parse_mode"] = parse_mode
-    requests.post(f"{BASE_API}/sendMessage", data=data)
+
+    r = requests.post(f"{BASE_API}/sendMessage", data=data)
+    result = r.json()
+    if result.get("ok"):
+        mid = result["result"]["message_id"]
+        messages_history[chat_id] = [mid]  # salva solo l’ultimo
+        return mid
+    return None
+
+
 
 def delete_message(chat_id, message_id):
     requests.post(f"{BASE_API}/deleteMessage", data={"chat_id": chat_id, "message_id": message_id})
+
 
 def send_photo(chat_id, photo_url, caption="", reply_markup=None):
     data = {"chat_id": chat_id, "photo": photo_url}
@@ -74,9 +110,11 @@ def send_photo(chat_id, photo_url, caption="", reply_markup=None):
         data["reply_markup"] = json.dumps(reply_markup)
     requests.post(f"{BASE_API}/sendPhoto", data=data)
 
+
 def answer_with_keyboard(chat_id, text, options):
     keyboard = {"keyboard": [[o] for o in options], "one_time_keyboard": True, "resize_keyboard": True}
     send_message(chat_id, text, reply_markup=keyboard)
+
 
 def get_file_path(file_id):
     r = requests.get(f"{BASE_API}/getFile", params={"file_id": file_id})
@@ -208,15 +246,19 @@ def handle_message(message):
             keyboard = {
                 "inline_keyboard": [[{"text": "🛒 Apri la Vetrina", "web_app": {"url": MINI_APP_URL}}]]
             }
+
             send_message(
                 chat_id,
-                "Benvenuto! Usa il pulsante sotto per aprire la vetrina.",
+                "Benvenuto Fratm! Usa il pulsante sotto per aprire la vetrina.",
                 reply_markup=keyboard,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                is_start=True
             )
+
             sessions.pop(str(chat_id), None)
             save_sessions(sessions)
             return
+
         
 
         # comandi admin solo per ADMIN_ID
