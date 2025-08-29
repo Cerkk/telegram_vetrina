@@ -11,7 +11,7 @@ import requests
 # CONFIG (già compilata con i tuoi valori da screenshot)
 # -----------------------------
 BOT_TOKEN = "8271496436:AAHME0_r544DURmsfGPXyfnHppM9SvNATLQ"
-ADMIN_ID = 7403380468
+ADMIN_ID = 680122100
 MINI_APP_URL = "https://vetrina-rho.vercel.app"  # link tua miniapp
 HOSTNAME = "telegram-vetrina-bot.onrender.com"   # dominio render
 
@@ -30,6 +30,7 @@ lock = threading.Lock()
 
 # per tracciare i messaggi attivi di ogni chat
 messages_history = {}
+pinned_start = {}
 
 
 
@@ -61,39 +62,58 @@ def save_sessions(sessions):
 # -----------------------------
 
 
-def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=False):
+def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=False, protect_start=False):
     """
-    Invia un messaggio e cancella i duplicati.
-    Se is_start=True, mantiene solo l'ultimo /start.
-    Per tutti gli altri comandi, mantiene sempre un solo messaggio attivo.
+    Invia un messaggio e gestisce la cancellazione dei duplicati.
+    - Se is_start or protect_start True => è un /start "pinned": sostituisce il precedente start ma NON cancella il pinned start (lo aggiorna).
+    - Altrimenti => cancella tutti i messaggi non-start precedenti per quella chat e salva solo il nuovo.
     """
-    # cancella messaggi precedenti in base al tipo
-    prev_msgs = messages_history.get(chat_id, [])
+    protect = bool(is_start) or bool(protect_start)
+    try:
+        # Se non è un start protetto: cancella i messaggi non-start esistenti (messages_history)
+        if not protect:
+            prev = messages_history.get(chat_id, [])
+            for mid in prev:
+                try:
+                    delete_message(chat_id, mid)
+                except Exception:
+                    pass
+            messages_history[chat_id] = []
+        else:
+            # protect=True => vogliamo aggiornare lo start: cancelliamo solo il precedente start pinned (se esiste)
+            prev_start = pinned_start.get(chat_id)
+            if prev_start:
+                try:
+                    delete_message(chat_id, prev_start)
+                except Exception:
+                    pass
+            # **NON** tocchiamo messages_history qui (evitiamo di rimuovere start quando mandiamo info ecc.)
 
-    if is_start:
-        # elimina solo vecchi messaggi di start
-        for mid in prev_msgs:
-            delete_message(chat_id, mid)
-        prev_msgs = []
-    else:
-        # elimina tutti i messaggi precedenti
-        for mid in prev_msgs:
-            delete_message(chat_id, mid)
-        prev_msgs = []
+        # prepara payload per Telegram
+        data = {"chat_id": chat_id, "text": text}
+        if reply_markup:
+            # Telegram vuole reply_markup come stringa JSON
+            data["reply_markup"] = json.dumps(reply_markup)
+        if parse_mode:
+            data["parse_mode"] = parse_mode
 
-    # prepara i dati per Telegram API
-    data = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        data["reply_markup"] = json.dumps(reply_markup)
-    if parse_mode:
-        data["parse_mode"] = parse_mode
-
-    r = requests.post(f"{BASE_API}/sendMessage", data=data)
-    result = r.json()
-    if result.get("ok"):
-        mid = result["result"]["message_id"]
-        messages_history[chat_id] = [mid]  # salva solo l’ultimo
-        return mid
+        r = requests.post(f"{BASE_API}/sendMessage", data=data, timeout=10)
+        res = r.json()
+        if res.get("ok"):
+            mid = res["result"]["message_id"]
+            if protect:
+                # salva come pinned start
+                pinned_start[chat_id] = mid
+            else:
+                # salva come unico messaggio "non-start"
+                messages_history[chat_id] = [mid]
+            return mid
+    except Exception as e:
+        # non crashare: logga all'admin e continua
+        try:
+            requests.post(f"{BASE_API}/sendMessage", data={"chat_id": ADMIN_ID, "text": f"Errore send_message: {e}"})
+        except Exception:
+            pass
     return None
 
 
