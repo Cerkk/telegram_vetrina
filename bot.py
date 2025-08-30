@@ -11,7 +11,7 @@ import requests
 # CONFIGURAZIONE
 # -----------------------------
 BOT_TOKEN = "8271496436:AAHME0_r544DURmsfGPXyfnHppM9SvNATLQ"
-ADMIN_ID = 5701793725
+ADMIN_ID = 696973528
 MINI_APP_URL = "https://vetrina-rho.vercel.app"  # link tua miniapp
 HOSTNAME = "telegram-vetrina-bot.onrender.com"   # dominio render
 
