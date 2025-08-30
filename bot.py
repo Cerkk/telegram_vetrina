@@ -8,10 +8,10 @@ from flask import Flask, request, jsonify, send_from_directory
 import requests
 
 # -----------------------------
-# CONFIG (già compilata con i tuoi valori da screenshot)
+# CONFIGURAZIONE
 # -----------------------------
 BOT_TOKEN = "8271496436:AAHME0_r544DURmsfGPXyfnHppM9SvNATLQ"
-ADMIN_ID = 680122100
+ADMIN_ID = 696973528
 MINI_APP_URL = "https://vetrina-rho.vercel.app"  # link tua miniapp
 HOSTNAME = "telegram-vetrina-bot.onrender.com"   # dominio render
 
@@ -74,7 +74,7 @@ def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=Fal
     """
     protect = bool(is_start) or bool(protect_start)
     try:
-        # Se non è un start protetto: cancella i messaggi non-start esistenti (messages_history)
+        
         if not protect:
             prev = messages_history.get(chat_id, [])
             for mid in prev:
@@ -84,14 +84,14 @@ def send_message(chat_id, text, reply_markup=None, parse_mode=None, is_start=Fal
                     pass
             messages_history[chat_id] = []
         else:
-            # protect=True => vogliamo aggiornare lo start: cancelliamo solo il precedente start pinned (se esiste)
+            
             prev_start = pinned_start.get(chat_id)
             if prev_start:
                 try:
                     delete_message(chat_id, prev_start)
                 except Exception:
                     pass
-            # **NON** tocchiamo messages_history qui (evitiamo di rimuovere start quando mandiamo info ecc.)
+            
 
         # prepara payload per Telegram
         data = {"chat_id": chat_id, "text": text}
@@ -342,12 +342,7 @@ def handle_message(message):
         send_message(chat_id, "Comando non riconosciuto. Usa /aggiungi /rimuovi /modifica")
         return
 
-    # ... resto del codice identico (aggiungi/rimuovi/modifica flussi) ...
-    # (QUI va copiato tutto il blocco delle logiche "adding / removing / modifying"
-    # che ti ho già fornito nel codice precedente, senza cambiare nulla)
-    # If there is no session, ignora
-    
-    
+ 
         # Gestione scelta quando siamo in "adding_choice" o "adding_category"
     if sess and sess.get("mode") == "adding_choice":
         step = sess.get("step")
@@ -739,3 +734,5 @@ def handle_message(message):
 
     # fallback
     send_message(chat_id, "Non ho capito. Usa /aggiungi /rimuovi /modifica oppure /start.")
+
+
